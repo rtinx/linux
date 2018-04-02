@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include "coreconfigurator.h"
 #include "wilc_wlan_if.h"
 #include "wilc_wlan.h"
@@ -200,7 +201,7 @@ static inline u16 get_cap_info(u8 *data)
 
 	st = get_sub_type(data);
 
-	if ((st == BEACON) || (st == PROBE_RSP))
+	if (st == BEACON || st == PROBE_RSP)
 		index += TIME_STAMP_LEN + BEACON_INTERVAL_LEN;
 
 	cap_info  = data[index];
@@ -224,9 +225,7 @@ static inline u16 get_asoc_status(u8 *data)
 	u16 asoc_status;
 
 	asoc_status = data[3];
-	asoc_status = (asoc_status << 8) | data[2];
-
-	return asoc_status;
+	return (asoc_status << 8) | data[2];
 }
 
 static inline u16 get_asoc_id(u8 *data)

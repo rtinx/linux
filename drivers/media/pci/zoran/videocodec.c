@@ -20,10 +20,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  * ------------------------------------------------------------------------
  */
 
@@ -40,7 +36,7 @@
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #endif
 
 #include "videocodec.h"
@@ -116,8 +112,9 @@ videocodec_attach (struct videocodec_master *master)
 				goto out_module_put;
 			}
 
-			snprintf(codec->name, sizeof(codec->name),
-				 "%s[%d]", codec->name, h->attached);
+			res = strlen(codec->name);
+			snprintf(codec->name + res, sizeof(codec->name) - res,
+				 "[%d]", h->attached);
 			codec->master_data = master;
 			res = codec->setup(codec);
 			if (res == 0) {
@@ -328,7 +325,6 @@ static int proc_videocodecs_show(struct seq_file *m, void *v)
 	seq_printf(m, "<S>lave or attached <M>aster name  type flags    magic    ");
 	seq_printf(m, "(connected as)\n");
 
-	h = codeclist_top;
 	while (h) {
 		seq_printf(m, "S %32s %04x %08lx %08lx (TEMPLATE)\n",
 			      h->codec->name, h->codec->type,

@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/perf_event.h>
+#include <asm/intel-family.h>
 
 enum perf_msr_id {
 	PERF_MSR_TSC			= 0,
@@ -6,13 +8,32 @@ enum perf_msr_id {
 	PERF_MSR_MPERF			= 2,
 	PERF_MSR_PPERF			= 3,
 	PERF_MSR_SMI			= 4,
-
+	PERF_MSR_PTSC			= 5,
+	PERF_MSR_IRPERF			= 6,
+	PERF_MSR_THERM			= 7,
+	PERF_MSR_THERM_SNAP		= 8,
+	PERF_MSR_THERM_UNIT		= 9,
 	PERF_MSR_EVENT_MAX,
 };
 
 static bool test_aperfmperf(int idx)
 {
 	return boot_cpu_has(X86_FEATURE_APERFMPERF);
+}
+
+static bool test_ptsc(int idx)
+{
+	return boot_cpu_has(X86_FEATURE_PTSC);
+}
+
+static bool test_irperf(int idx)
+{
+	return boot_cpu_has(X86_FEATURE_IRPERF);
+}
+
+static bool test_therm_status(int idx)
+{
+	return boot_cpu_has(X86_FEATURE_DTHERM);
 }
 
 static bool test_intel(int idx)
@@ -22,39 +43,51 @@ static bool test_intel(int idx)
 		return false;
 
 	switch (boot_cpu_data.x86_model) {
-	case 30: /* 45nm Nehalem    */
-	case 26: /* 45nm Nehalem-EP */
-	case 46: /* 45nm Nehalem-EX */
+	case INTEL_FAM6_NEHALEM:
+	case INTEL_FAM6_NEHALEM_G:
+	case INTEL_FAM6_NEHALEM_EP:
+	case INTEL_FAM6_NEHALEM_EX:
 
-	case 37: /* 32nm Westmere    */
-	case 44: /* 32nm Westmere-EP */
-	case 47: /* 32nm Westmere-EX */
+	case INTEL_FAM6_WESTMERE:
+	case INTEL_FAM6_WESTMERE_EP:
+	case INTEL_FAM6_WESTMERE_EX:
 
-	case 42: /* 32nm SandyBridge         */
-	case 45: /* 32nm SandyBridge-E/EN/EP */
+	case INTEL_FAM6_SANDYBRIDGE:
+	case INTEL_FAM6_SANDYBRIDGE_X:
 
-	case 58: /* 22nm IvyBridge       */
-	case 62: /* 22nm IvyBridge-EP/EX */
+	case INTEL_FAM6_IVYBRIDGE:
+	case INTEL_FAM6_IVYBRIDGE_X:
 
-	case 60: /* 22nm Haswell Core */
-	case 63: /* 22nm Haswell Server */
-	case 69: /* 22nm Haswell ULT */
-	case 70: /* 22nm Haswell + GT3e (Intel Iris Pro graphics) */
+	case INTEL_FAM6_HASWELL_CORE:
+	case INTEL_FAM6_HASWELL_X:
+	case INTEL_FAM6_HASWELL_ULT:
+	case INTEL_FAM6_HASWELL_GT3E:
 
-	case 61: /* 14nm Broadwell Core-M */
-	case 86: /* 14nm Broadwell Xeon D */
-	case 71: /* 14nm Broadwell + GT3e (Intel Iris Pro graphics) */
-	case 79: /* 14nm Broadwell Server */
+	case INTEL_FAM6_BROADWELL_CORE:
+	case INTEL_FAM6_BROADWELL_XEON_D:
+	case INTEL_FAM6_BROADWELL_GT3E:
+	case INTEL_FAM6_BROADWELL_X:
 
-	case 55: /* 22nm Atom "Silvermont"                */
-	case 77: /* 22nm Atom "Silvermont Avoton/Rangely" */
-	case 76: /* 14nm Atom "Airmont"                   */
+	case INTEL_FAM6_ATOM_SILVERMONT1:
+	case INTEL_FAM6_ATOM_SILVERMONT2:
+	case INTEL_FAM6_ATOM_AIRMONT:
+
+	case INTEL_FAM6_ATOM_GOLDMONT:
+	case INTEL_FAM6_ATOM_DENVERTON:
+
+	case INTEL_FAM6_ATOM_GEMINI_LAKE:
+
+	case INTEL_FAM6_XEON_PHI_KNL:
+	case INTEL_FAM6_XEON_PHI_KNM:
 		if (idx == PERF_MSR_SMI)
 			return true;
 		break;
 
-	case 78: /* 14nm Skylake Mobile */
-	case 94: /* 14nm Skylake Desktop */
+	case INTEL_FAM6_SKYLAKE_MOBILE:
+	case INTEL_FAM6_SKYLAKE_DESKTOP:
+	case INTEL_FAM6_SKYLAKE_X:
+	case INTEL_FAM6_KABYLAKE_MOBILE:
+	case INTEL_FAM6_KABYLAKE_DESKTOP:
 		if (idx == PERF_MSR_SMI || idx == PERF_MSR_PPERF)
 			return true;
 		break;
@@ -69,18 +102,28 @@ struct perf_msr {
 	bool	(*test)(int idx);
 };
 
-PMU_EVENT_ATTR_STRING(tsc,   evattr_tsc,   "event=0x00");
-PMU_EVENT_ATTR_STRING(aperf, evattr_aperf, "event=0x01");
-PMU_EVENT_ATTR_STRING(mperf, evattr_mperf, "event=0x02");
-PMU_EVENT_ATTR_STRING(pperf, evattr_pperf, "event=0x03");
-PMU_EVENT_ATTR_STRING(smi,   evattr_smi,   "event=0x04");
+PMU_EVENT_ATTR_STRING(tsc,				evattr_tsc,		"event=0x00"	);
+PMU_EVENT_ATTR_STRING(aperf,				evattr_aperf,		"event=0x01"	);
+PMU_EVENT_ATTR_STRING(mperf,				evattr_mperf,		"event=0x02"	);
+PMU_EVENT_ATTR_STRING(pperf,				evattr_pperf,		"event=0x03"	);
+PMU_EVENT_ATTR_STRING(smi,				evattr_smi,		"event=0x04"	);
+PMU_EVENT_ATTR_STRING(ptsc,				evattr_ptsc,		"event=0x05"	);
+PMU_EVENT_ATTR_STRING(irperf,				evattr_irperf,		"event=0x06"	);
+PMU_EVENT_ATTR_STRING(cpu_thermal_margin,		evattr_therm,		"event=0x07"	);
+PMU_EVENT_ATTR_STRING(cpu_thermal_margin.snapshot,	evattr_therm_snap,	"1"		);
+PMU_EVENT_ATTR_STRING(cpu_thermal_margin.unit,		evattr_therm_unit,	"C"		);
 
 static struct perf_msr msr[] = {
-	[PERF_MSR_TSC]   = { 0,			&evattr_tsc,	NULL,		 },
-	[PERF_MSR_APERF] = { MSR_IA32_APERF,	&evattr_aperf,	test_aperfmperf, },
-	[PERF_MSR_MPERF] = { MSR_IA32_MPERF,	&evattr_mperf,	test_aperfmperf, },
-	[PERF_MSR_PPERF] = { MSR_PPERF,		&evattr_pperf,	test_intel,	 },
-	[PERF_MSR_SMI]   = { MSR_SMI_COUNT,	&evattr_smi,	test_intel,	 },
+	[PERF_MSR_TSC]		= { 0,				&evattr_tsc,		NULL,			},
+	[PERF_MSR_APERF]	= { MSR_IA32_APERF,		&evattr_aperf,		test_aperfmperf,	},
+	[PERF_MSR_MPERF]	= { MSR_IA32_MPERF,		&evattr_mperf,		test_aperfmperf,	},
+	[PERF_MSR_PPERF]	= { MSR_PPERF,			&evattr_pperf,		test_intel,		},
+	[PERF_MSR_SMI]		= { MSR_SMI_COUNT,		&evattr_smi,		test_intel,		},
+	[PERF_MSR_PTSC]		= { MSR_F15H_PTSC,		&evattr_ptsc,		test_ptsc,		},
+	[PERF_MSR_IRPERF]	= { MSR_F17H_IRPERF,		&evattr_irperf,		test_irperf,		},
+	[PERF_MSR_THERM]	= { MSR_IA32_THERM_STATUS,	&evattr_therm,		test_therm_status,	},
+	[PERF_MSR_THERM_SNAP]	= { MSR_IA32_THERM_STATUS,	&evattr_therm_snap,	test_therm_status,	},
+	[PERF_MSR_THERM_UNIT]	= { MSR_IA32_THERM_STATUS,	&evattr_therm_unit,	test_therm_status,	},
 };
 
 static struct attribute *events_attrs[PERF_MSR_EVENT_MAX + 1] = {
@@ -131,9 +174,9 @@ static int msr_event_init(struct perf_event *event)
 	if (!msr[cfg].attr)
 		return -EINVAL;
 
-	event->hw.idx = -1;
-	event->hw.event_base = msr[cfg].msr;
-	event->hw.config = cfg;
+	event->hw.idx		= -1;
+	event->hw.event_base	= msr[cfg].msr;
+	event->hw.config	= cfg;
 
 	return 0;
 }
@@ -154,7 +197,7 @@ static void msr_event_update(struct perf_event *event)
 	u64 prev, now;
 	s64 delta;
 
-	/* Careful, an NMI might modify the previous event value. */
+	/* Careful, an NMI might modify the previous event value: */
 again:
 	prev = local64_read(&event->hw.prev_count);
 	now = msr_read_counter(event);
@@ -163,17 +206,22 @@ again:
 		goto again;
 
 	delta = now - prev;
-	if (unlikely(event->hw.event_base == MSR_SMI_COUNT))
+	if (unlikely(event->hw.event_base == MSR_SMI_COUNT)) {
 		delta = sign_extend64(delta, 31);
-
-	local64_add(now - prev, &event->count);
+		local64_add(delta, &event->count);
+	} else if (unlikely(event->hw.event_base == MSR_IA32_THERM_STATUS)) {
+		/* If valid, extract digital readout, otherwise set to -1: */
+		now = now & (1ULL << 31) ? (now >> 16) & 0x3f :  -1;
+		local64_set(&event->count, now);
+	} else {
+		local64_add(delta, &event->count);
+	}
 }
 
 static void msr_event_start(struct perf_event *event, int flags)
 {
-	u64 now;
+	u64 now = msr_read_counter(event);
 
-	now = msr_read_counter(event);
 	local64_set(&event->hw.prev_count, now);
 }
 
@@ -220,9 +268,7 @@ static int __init msr_init(void)
 	for (i = PERF_MSR_TSC + 1; i < PERF_MSR_EVENT_MAX; i++) {
 		u64 val;
 
-		/*
-		 * Virt sucks arse; you cannot tell if a R/O MSR is present :/
-		 */
+		/* Virt sucks; you cannot tell if a R/O MSR is present :/ */
 		if (!msr[i].test(i) || rdmsrl_safe(msr[i].msr, &val))
 			msr[i].attr = NULL;
 	}

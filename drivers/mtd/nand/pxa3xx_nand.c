@@ -21,7 +21,7 @@
 #include <linux/delay.h>
 #include <linux/clk.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
@@ -29,8 +29,9 @@
 #include <linux/slab.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/of_mtd.h>
 #include <linux/platform_data/mtd-nand-pxa3xx.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
 
 #define	CHIP_DELAY_TIMEOUT	msecs_to_jiffies(200)
 #define NAND_STOP_DELAY		msecs_to_jiffies(40)
@@ -45,6 +46,10 @@
  * Hence this buffer should be at least 512 x 3. Let's pick 2048.
  */
 #define INIT_BUFFER_SIZE	2048
+
+/* System control register and bit to enable NAND on some SoCs */
+#define GENCONF_SOC_DEVICE_MUX	0x208
+#define GENCONF_SOC_DEVICE_MUX_NFC_EN BIT(0)
 
 /* registers and bit definitions */
 #define NDCR		(0x00) /* Control register */
@@ -175,6 +180,7 @@ enum {
 enum pxa3xx_nand_variant {
 	PXA3XX_NAND_VARIANT_PXA,
 	PXA3XX_NAND_VARIANT_ARMADA370,
+	PXA3XX_NAND_VARIANT_ARMADA_8K,
 };
 
 struct pxa3xx_nand_host {
@@ -324,6 +330,62 @@ static struct pxa3xx_nand_flash builtin_flash_types[] = {
 	{ 0xba20, 16, 16, &timing[3] },
 };
 
+static int pxa3xx_ooblayout_ecc(struct mtd_info *mtd, int section,
+				struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct pxa3xx_nand_host *host = nand_get_controller_data(chip);
+	struct pxa3xx_nand_info *info = host->info_data;
+	int nchunks = mtd->writesize / info->chunk_size;
+
+	if (section >= nchunks)
+		return -ERANGE;
+
+	oobregion->offset = ((info->ecc_size + info->spare_size) * section) +
+			    info->spare_size;
+	oobregion->length = info->ecc_size;
+
+	return 0;
+}
+
+static int pxa3xx_ooblayout_free(struct mtd_info *mtd, int section,
+				 struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct pxa3xx_nand_host *host = nand_get_controller_data(chip);
+	struct pxa3xx_nand_info *info = host->info_data;
+	int nchunks = mtd->writesize / info->chunk_size;
+
+	if (section >= nchunks)
+		return -ERANGE;
+
+	if (!info->spare_size)
+		return 0;
+
+	oobregion->offset = section * (info->ecc_size + info->spare_size);
+	oobregion->length = info->spare_size;
+	if (!section) {
+		/*
+		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
+		 * 4KB page / 4bit BCH combination.
+		 */
+		if (mtd->writesize == 4096 && info->chunk_size == 2048) {
+			oobregion->offset += 6;
+			oobregion->length -= 6;
+		} else {
+			oobregion->offset += 2;
+			oobregion->length -= 2;
+		}
+	}
+
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops pxa3xx_ooblayout_ops = {
+	.ecc = pxa3xx_ooblayout_ecc,
+	.free = pxa3xx_ooblayout_free,
+};
+
 static u8 bbt_pattern[] = {'M', 'V', 'B', 'b', 't', '0' };
 static u8 bbt_mirror_pattern[] = {'1', 't', 'b', 'B', 'V', 'M' };
 
@@ -345,41 +407,6 @@ static struct nand_bbt_descr bbt_mirror_descr = {
 	.veroffs = 14,
 	.maxblocks = 8,		/* Last 8 blocks in each chip */
 	.pattern = bbt_mirror_pattern
-};
-
-static struct nand_ecclayout ecc_layout_2KB_bch4bit = {
-	.eccbytes = 32,
-	.eccpos = {
-		32, 33, 34, 35, 36, 37, 38, 39,
-		40, 41, 42, 43, 44, 45, 46, 47,
-		48, 49, 50, 51, 52, 53, 54, 55,
-		56, 57, 58, 59, 60, 61, 62, 63},
-	.oobfree = { {2, 30} }
-};
-
-static struct nand_ecclayout ecc_layout_4KB_bch4bit = {
-	.eccbytes = 64,
-	.eccpos = {
-		32,  33,  34,  35,  36,  37,  38,  39,
-		40,  41,  42,  43,  44,  45,  46,  47,
-		48,  49,  50,  51,  52,  53,  54,  55,
-		56,  57,  58,  59,  60,  61,  62,  63,
-		96,  97,  98,  99,  100, 101, 102, 103,
-		104, 105, 106, 107, 108, 109, 110, 111,
-		112, 113, 114, 115, 116, 117, 118, 119,
-		120, 121, 122, 123, 124, 125, 126, 127},
-	/* Bootrom looks in bytes 0 & 5 for bad blocks */
-	.oobfree = { {6, 26}, { 64, 32} }
-};
-
-static struct nand_ecclayout ecc_layout_4KB_bch8bit = {
-	.eccbytes = 128,
-	.eccpos = {
-		32,  33,  34,  35,  36,  37,  38,  39,
-		40,  41,  42,  43,  44,  45,  46,  47,
-		48,  49,  50,  51,  52,  53,  54,  55,
-		56,  57,  58,  59,  60,  61,  62,  63},
-	.oobfree = { }
 };
 
 #define NDTR0_tCH(c)	(min((c), 7) << 19)
@@ -404,6 +431,10 @@ static const struct of_device_id pxa3xx_nand_dt_ids[] = {
 	{
 		.compatible = "marvell,armada370-nand",
 		.data       = (void *)PXA3XX_NAND_VARIANT_ARMADA370,
+	},
+	{
+		.compatible = "marvell,armada-8k-nand",
+		.data       = (void *)PXA3XX_NAND_VARIANT_ARMADA_8K,
 	},
 	{}
 };
@@ -489,15 +520,13 @@ static int pxa3xx_nand_init_timings_compat(struct pxa3xx_nand_host *host,
 	struct nand_chip *chip = &host->chip;
 	struct pxa3xx_nand_info *info = host->info_data;
 	const struct pxa3xx_nand_flash *f = NULL;
-	struct mtd_info *mtd = nand_to_mtd(&host->chip);
 	int i, id, ntypes;
+	u8 idbuf[2];
 
 	ntypes = ARRAY_SIZE(builtin_flash_types);
 
-	chip->cmdfunc(mtd, NAND_CMD_READID, 0x00, -1);
-
-	id = chip->read_byte(mtd);
-	id |= chip->read_byte(mtd) << 0x8;
+	nand_readid_op(chip, 0, idbuf, sizeof(idbuf));
+	id = idbuf[0] | (idbuf[1] << 8);
 
 	for (i = 0; i < ntypes; i++) {
 		f = &builtin_flash_types[i];
@@ -805,7 +834,8 @@ static irqreturn_t pxa3xx_nand_irq(int irq, void *devid)
 		info->retcode = ERR_UNCORERR;
 	if (status & NDSR_CORERR) {
 		info->retcode = ERR_CORERR;
-		if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370 &&
+		if ((info->variant == PXA3XX_NAND_VARIANT_ARMADA370 ||
+		     info->variant == PXA3XX_NAND_VARIANT_ARMADA_8K) &&
 		    info->ecc_bch)
 			info->ecc_err_cnt = NDSR_ERR_CNT(status);
 		else
@@ -868,7 +898,8 @@ static irqreturn_t pxa3xx_nand_irq(int irq, void *devid)
 		nand_writel(info, NDCB0, info->ndcb2);
 
 		/* NDCB3 register is available in NFCv2 (Armada 370/XP SoC) */
-		if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370)
+		if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370 ||
+		    info->variant == PXA3XX_NAND_VARIANT_ARMADA_8K)
 			nand_writel(info, NDCB0, info->ndcb3);
 	}
 
@@ -930,6 +961,7 @@ static void prepare_start_command(struct pxa3xx_nand_info *info, int command)
 
 	switch (command) {
 	case NAND_CMD_READ0:
+	case NAND_CMD_READOOB:
 	case NAND_CMD_PAGEPROG:
 		info->use_ecc = 1;
 		break;
@@ -1317,10 +1349,10 @@ static int pxa3xx_nand_write_page_hwecc(struct mtd_info *mtd,
 		struct nand_chip *chip, const uint8_t *buf, int oob_required,
 		int page)
 {
-	chip->write_buf(mtd, buf, mtd->writesize);
+	nand_prog_page_begin_op(chip, page, 0, buf, mtd->writesize);
 	chip->write_buf(mtd, chip->oob_poi, mtd->oobsize);
 
-	return 0;
+	return nand_prog_page_end_op(chip);
 }
 
 static int pxa3xx_nand_read_page_hwecc(struct mtd_info *mtd,
@@ -1330,7 +1362,7 @@ static int pxa3xx_nand_read_page_hwecc(struct mtd_info *mtd,
 	struct pxa3xx_nand_host *host = nand_get_controller_data(chip);
 	struct pxa3xx_nand_info *info = host->info_data;
 
-	chip->read_buf(mtd, buf, mtd->writesize);
+	nand_read_page_op(chip, page, 0, buf, mtd->writesize);
 	chip->read_buf(mtd, chip->oob_poi, mtd->oobsize);
 
 	if (info->retcode == ERR_CORERR && info->use_ecc) {
@@ -1546,9 +1578,12 @@ static void pxa3xx_nand_free_buff(struct pxa3xx_nand_info *info)
 }
 
 static int pxa_ecc_init(struct pxa3xx_nand_info *info,
-			struct nand_ecc_ctrl *ecc,
+			struct mtd_info *mtd,
 			int strength, int ecc_stepsize, int page_size)
 {
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct nand_ecc_ctrl *ecc = &chip->ecc;
+
 	if (strength == 1 && ecc_stepsize == 512 && page_size == 2048) {
 		info->nfullchunks = 1;
 		info->ntotalchunks = 1;
@@ -1582,7 +1617,7 @@ static int pxa_ecc_init(struct pxa3xx_nand_info *info,
 		info->ecc_size = 32;
 		ecc->mode = NAND_ECC_HW;
 		ecc->size = info->chunk_size;
-		ecc->layout = &ecc_layout_2KB_bch4bit;
+		mtd_set_ooblayout(mtd, &pxa3xx_ooblayout_ops);
 		ecc->strength = 16;
 
 	} else if (strength == 4 && ecc_stepsize == 512 && page_size == 4096) {
@@ -1594,7 +1629,7 @@ static int pxa_ecc_init(struct pxa3xx_nand_info *info,
 		info->ecc_size = 32;
 		ecc->mode = NAND_ECC_HW;
 		ecc->size = info->chunk_size;
-		ecc->layout = &ecc_layout_4KB_bch4bit;
+		mtd_set_ooblayout(mtd, &pxa3xx_ooblayout_ops);
 		ecc->strength = 16;
 
 	/*
@@ -1612,7 +1647,7 @@ static int pxa_ecc_init(struct pxa3xx_nand_info *info,
 		info->ecc_size = 32;
 		ecc->mode = NAND_ECC_HW;
 		ecc->size = info->chunk_size;
-		ecc->layout = &ecc_layout_4KB_bch8bit;
+		mtd_set_ooblayout(mtd, &pxa3xx_ooblayout_ops);
 		ecc->strength = 16;
 	} else {
 		dev_err(&info->pdev->dev,
@@ -1648,11 +1683,19 @@ static int pxa3xx_nand_scan(struct mtd_info *mtd)
 		chip->options |= NAND_BUSWIDTH_16;
 
 	/* Device detection must be done with ECC disabled */
-	if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370)
+	if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370 ||
+	    info->variant == PXA3XX_NAND_VARIANT_ARMADA_8K)
 		nand_writel(info, NDECCCTRL, 0x0);
 
-	if (nand_scan_ident(mtd, 1, NULL))
-		return -ENODEV;
+	if (pdata->flash_bbt)
+		chip->bbt_options |= NAND_BBT_USE_FLASH;
+
+	chip->ecc.strength = pdata->ecc_strength;
+	chip->ecc.size = pdata->ecc_step_size;
+
+	ret = nand_scan_ident(mtd, 1, NULL);
+	if (ret)
+		return ret;
 
 	if (!pdata->keep_config) {
 		ret = pxa3xx_nand_init(host);
@@ -1663,13 +1706,12 @@ static int pxa3xx_nand_scan(struct mtd_info *mtd)
 		}
 	}
 
-	if (pdata->flash_bbt) {
+	if (chip->bbt_options & NAND_BBT_USE_FLASH) {
 		/*
 		 * We'll use a bad block table stored in-flash and don't
 		 * allow writing the bad block marker to the flash.
 		 */
-		chip->bbt_options |= NAND_BBT_USE_FLASH |
-				     NAND_BBT_NO_OOB_BBM;
+		chip->bbt_options |= NAND_BBT_NO_OOB_BBM;
 		chip->bbt_td = &bbt_main_descr;
 		chip->bbt_md = &bbt_mirror_descr;
 	}
@@ -1680,7 +1722,8 @@ static int pxa3xx_nand_scan(struct mtd_info *mtd)
 	 * (aka splitted) command handling,
 	 */
 	if (mtd->writesize > PAGE_CHUNK_SIZE) {
-		if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370) {
+		if (info->variant == PXA3XX_NAND_VARIANT_ARMADA370 ||
+		    info->variant == PXA3XX_NAND_VARIANT_ARMADA_8K) {
 			chip->cmdfunc = nand_cmdfunc_extended;
 		} else {
 			dev_err(&info->pdev->dev,
@@ -1689,10 +1732,9 @@ static int pxa3xx_nand_scan(struct mtd_info *mtd)
 		}
 	}
 
-	if (pdata->ecc_strength && pdata->ecc_step_size) {
-		ecc_strength = pdata->ecc_strength;
-		ecc_step = pdata->ecc_step_size;
-	} else {
+	ecc_strength = chip->ecc.strength;
+	ecc_step = chip->ecc.size;
+	if (!ecc_strength || !ecc_step) {
 		ecc_strength = chip->ecc_strength_ds;
 		ecc_step = chip->ecc_step_ds;
 	}
@@ -1703,7 +1745,7 @@ static int pxa3xx_nand_scan(struct mtd_info *mtd)
 		ecc_step = 512;
 	}
 
-	ret = pxa_ecc_init(info, &chip->ecc, ecc_strength,
+	ret = pxa_ecc_init(info, mtd, ecc_strength,
 			   ecc_step, mtd->writesize);
 	if (ret)
 		return ret;
@@ -1747,8 +1789,11 @@ static int alloc_nand_resource(struct platform_device *pdev)
 	int ret, irq, cs;
 
 	pdata = dev_get_platdata(&pdev->dev);
-	if (pdata->num_cs <= 0)
+	if (pdata->num_cs <= 0) {
+		dev_err(&pdev->dev, "invalid number of chip selects\n");
 		return -ENODEV;
+	}
+
 	info = devm_kzalloc(&pdev->dev,
 			    sizeof(*info) + sizeof(*host) * pdata->num_cs,
 			    GFP_KERNEL);
@@ -1781,14 +1826,16 @@ static int alloc_nand_resource(struct platform_device *pdev)
 		chip->write_buf		= pxa3xx_nand_write_buf;
 		chip->options		|= NAND_NO_SUBPAGE_WRITE;
 		chip->cmdfunc		= nand_cmdfunc;
+		chip->onfi_set_features	= nand_onfi_get_set_features_notsupp;
+		chip->onfi_get_features	= nand_onfi_get_set_features_notsupp;
 	}
 
-	spin_lock_init(&chip->controller->lock);
-	init_waitqueue_head(&chip->controller->wq);
+	nand_hw_control_init(chip->controller);
 	info->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(info->clk)) {
-		dev_err(&pdev->dev, "failed to get nand clock\n");
-		return PTR_ERR(info->clk);
+		ret = PTR_ERR(info->clk);
+		dev_err(&pdev->dev, "failed to get nand clock: %d\n", ret);
+		return ret;
 	}
 	ret = clk_prepare_enable(info->clk);
 	if (ret < 0)
@@ -1816,6 +1863,7 @@ static int alloc_nand_resource(struct platform_device *pdev)
 	info->mmio_base = devm_ioremap_resource(&pdev->dev, r);
 	if (IS_ERR(info->mmio_base)) {
 		ret = PTR_ERR(info->mmio_base);
+		dev_err(&pdev->dev, "failed to map register space: %d\n", ret);
 		goto fail_disable_clk;
 	}
 	info->mmio_phys = r->start;
@@ -1835,7 +1883,7 @@ static int alloc_nand_resource(struct platform_device *pdev)
 				   pxa3xx_nand_irq_thread, IRQF_ONESHOT,
 				   pdev->name, info);
 	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to request IRQ\n");
+		dev_err(&pdev->dev, "failed to request IRQ: %d\n", ret);
 		goto fail_free_buf;
 	}
 
@@ -1894,6 +1942,24 @@ static int pxa3xx_nand_probe_dt(struct platform_device *pdev)
 	if (!of_id)
 		return 0;
 
+	/*
+	 * Some SoCs like A7k/A8k need to enable manually the NAND
+	 * controller to avoid being bootloader dependent. This is done
+	 * through the use of a single bit in the System Functions registers.
+	 */
+	if (pxa3xx_nand_get_variant(pdev) == PXA3XX_NAND_VARIANT_ARMADA_8K) {
+		struct regmap *sysctrl_base = syscon_regmap_lookup_by_phandle(
+			pdev->dev.of_node, "marvell,system-controller");
+		u32 reg;
+
+		if (IS_ERR(sysctrl_base))
+			return PTR_ERR(sysctrl_base);
+
+		regmap_read(sysctrl_base, GENCONF_SOC_DEVICE_MUX, &reg);
+		reg |= GENCONF_SOC_DEVICE_MUX_NFC_EN;
+		regmap_write(sysctrl_base, GENCONF_SOC_DEVICE_MUX, reg);
+	}
+
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
@@ -1903,15 +1969,6 @@ static int pxa3xx_nand_probe_dt(struct platform_device *pdev)
 	if (of_get_property(np, "marvell,nand-keep-config", NULL))
 		pdata->keep_config = 1;
 	of_property_read_u32(np, "num-cs", &pdata->num_cs);
-	pdata->flash_bbt = of_get_nand_on_flash_bbt(np);
-
-	pdata->ecc_strength = of_get_nand_ecc_strength(np);
-	if (pdata->ecc_strength < 0)
-		pdata->ecc_strength = 0;
-
-	pdata->ecc_step_size = of_get_nand_ecc_step_size(np);
-	if (pdata->ecc_step_size < 0)
-		pdata->ecc_step_size = 0;
 
 	pdev->dev.platform_data = pdata;
 
@@ -1943,10 +2000,8 @@ static int pxa3xx_nand_probe(struct platform_device *pdev)
 	}
 
 	ret = alloc_nand_resource(pdev);
-	if (ret) {
-		dev_err(&pdev->dev, "alloc nand resource failed\n");
+	if (ret)
 		return ret;
-	}
 
 	info = platform_get_drvdata(pdev);
 	probe_success = 0;

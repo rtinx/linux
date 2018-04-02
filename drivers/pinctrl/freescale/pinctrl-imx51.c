@@ -15,7 +15,6 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/io.h>
-#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/pinctrl/pinctrl.h>
@@ -763,7 +762,7 @@ static const struct pinctrl_pin_desc imx51_pinctrl_pads[] = {
 	IMX_PINCTRL_PIN(MX51_PAD_CSI1_MCLK),
 };
 
-static struct imx_pinctrl_soc_info imx51_pinctrl_info = {
+static const struct imx_pinctrl_soc_info imx51_pinctrl_info = {
 	.pins = imx51_pinctrl_pads,
 	.npins = ARRAY_SIZE(imx51_pinctrl_pads),
 };
@@ -784,7 +783,6 @@ static struct platform_driver imx51_pinctrl_driver = {
 		.of_match_table = imx51_pinctrl_of_match,
 	},
 	.probe = imx51_pinctrl_probe,
-	.remove = imx_pinctrl_remove,
 };
 
 static int __init imx51_pinctrl_init(void)
@@ -792,12 +790,3 @@ static int __init imx51_pinctrl_init(void)
 	return platform_driver_register(&imx51_pinctrl_driver);
 }
 arch_initcall(imx51_pinctrl_init);
-
-static void __exit imx51_pinctrl_exit(void)
-{
-	platform_driver_unregister(&imx51_pinctrl_driver);
-}
-module_exit(imx51_pinctrl_exit);
-MODULE_AUTHOR("Dong Aisheng <dong.aisheng@linaro.org>");
-MODULE_DESCRIPTION("Freescale IMX51 pinctrl driver");
-MODULE_LICENSE("GPL v2");

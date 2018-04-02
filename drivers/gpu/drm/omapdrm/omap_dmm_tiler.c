@@ -1,10 +1,9 @@
 /*
  * DMM IOMMU driver support functions for TI OMAP processors.
  *
+ * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com/
  * Author: Rob Clark <rob@ti.com>
  *         Andy Gross <andy.gross@ti.com>
- *
- * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com/
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -27,6 +26,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h> /* platform_device() */
 #include <linux/sched.h>
+#include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/time.h>
 #include <linux/vmalloc.h>
@@ -120,14 +120,22 @@ static int wait_status(struct refill_engine *engine, uint32_t wait_mask)
 	while (true) {
 		r = dmm_read(dmm, reg[PAT_STATUS][engine->id]);
 		err = r & DMM_PATSTATUS_ERR;
-		if (err)
+		if (err) {
+			dev_err(dmm->dev,
+				"%s: error (engine%d). PAT_STATUS: 0x%08x\n",
+				__func__, engine->id, r);
 			return -EFAULT;
+		}
 
 		if ((r & wait_mask) == wait_mask)
 			break;
 
-		if (--i == 0)
+		if (--i == 0) {
+			dev_err(dmm->dev,
+				"%s: timeout (engine%d). PAT_STATUS: 0x%08x\n",
+				__func__, engine->id, r);
 			return -ETIMEDOUT;
+		}
 
 		udelay(1);
 	}
@@ -157,6 +165,11 @@ static irqreturn_t omap_dmm_irq_handler(int irq, void *arg)
 	dmm_write(dmm, status, DMM_PAT_IRQSTATUS);
 
 	for (i = 0; i < dmm->num_engines; i++) {
+		if (status & DMM_IRQSTAT_ERR_MASK)
+			dev_err(dmm->dev,
+				"irq error(engine%d): IRQSTAT 0x%02x\n",
+				i, status & 0xff);
+
 		if (status & DMM_IRQSTAT_LST) {
 			if (dmm->engines[i].async)
 				release_engine(&dmm->engines[i]);
@@ -223,7 +236,7 @@ static void dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
 	int rows = (1 + area->y1 - area->y0);
 	int i = columns*rows;
 
-	pat = alloc_dma(txn, sizeof(struct pat), &pat_pa);
+	pat = alloc_dma(txn, sizeof(*pat), &pat_pa);
 
 	if (txn->last_pat)
 		txn->last_pat->next_pa = (uint32_t)pat_pa;
@@ -297,7 +310,12 @@ static int dmm_txn_commit(struct dmm_txn *txn, bool wait)
 				msecs_to_jiffies(100))) {
 			dev_err(dmm->dev, "timed out waiting for done\n");
 			ret = -ETIMEDOUT;
+			goto cleanup;
 		}
+
+		/* Check the engine status before continue */
+		ret = wait_status(engine, DMM_PATSTATUS_READY |
+				  DMM_PATSTATUS_VALID | DMM_PATSTATUS_DONE);
 	}
 
 cleanup:
@@ -387,7 +405,7 @@ struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 	u32 min_align = 128;
 	int ret;
 	unsigned long flags;
-	size_t slot_bytes;
+	u32 slot_bytes;
 
 	BUG_ON(!validfmt(fmt));
 
@@ -637,7 +655,8 @@ static int omap_dmm_probe(struct platform_device *dev)
 		match = of_match_node(dmm_of_match, dev->dev.of_node);
 		if (!match) {
 			dev_err(&dev->dev, "failed to find matching device node\n");
-			return -ENODEV;
+			ret = -ENODEV;
+			goto fail;
 		}
 
 		omap_dmm->plat_data = match->data;
@@ -734,7 +753,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 
 	/* alloc engines */
 	omap_dmm->engines = kcalloc(omap_dmm->num_engines,
-				    sizeof(struct refill_engine), GFP_KERNEL);
+				    sizeof(*omap_dmm->engines), GFP_KERNEL);
 	if (!omap_dmm->engines) {
 		ret = -ENOMEM;
 		goto fail;

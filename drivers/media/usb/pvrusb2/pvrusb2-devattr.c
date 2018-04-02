@@ -12,10 +12,6 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  */
 
 /*
@@ -323,12 +319,12 @@ static struct tda829x_config tda829x_no_probe = {
 };
 
 static struct tda18271_std_map hauppauge_tda18271_dvbt_std_map = {
-        .dvbt_6   = { .if_freq = 3300, .agc_mode = 3, .std = 4,
-                      .if_lvl = 1, .rfagc_top = 0x37, },
-        .dvbt_7   = { .if_freq = 3800, .agc_mode = 3, .std = 5,
-                      .if_lvl = 1, .rfagc_top = 0x37, },
-        .dvbt_8   = { .if_freq = 4300, .agc_mode = 3, .std = 6,
-                      .if_lvl = 1, .rfagc_top = 0x37, },
+	.dvbt_6   = { .if_freq = 3300, .agc_mode = 3, .std = 4,
+		      .if_lvl = 1, .rfagc_top = 0x37, },
+	.dvbt_7   = { .if_freq = 3800, .agc_mode = 3, .std = 5,
+		      .if_lvl = 1, .rfagc_top = 0x37, },
+	.dvbt_8   = { .if_freq = 4300, .agc_mode = 3, .std = 6,
+		      .if_lvl = 1, .rfagc_top = 0x37, },
 };
 
 static struct tda18271_config hauppauge_tda18271_dvb_config = {

@@ -2,7 +2,7 @@
  *
  * Copyright(c) 2009 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2015 Intel Mobile Communications GmbH
- * Copyright(c) 2016        Intel Deutschland GmbH
+ * Copyright(c) 2016 - 2017 Intel Deutschland GmbH
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -91,11 +91,11 @@ TRACE_EVENT(iwlwifi_dev_tx,
 	TP_PROTO(const struct device *dev, struct sk_buff *skb,
 		 void *tfd, size_t tfdlen,
 		 void *buf0, size_t buf0_len,
-		 void *buf1, size_t buf1_len),
-	TP_ARGS(dev, skb, tfd, tfdlen, buf0, buf0_len, buf1, buf1_len),
+		 int hdr_len),
+	TP_ARGS(dev, skb, tfd, tfdlen, buf0, buf0_len, hdr_len),
 	TP_STRUCT__entry(
 		DEV_ENTRY
-
+		__field(void *, skbaddr)
 		__field(size_t, framelen)
 		__dynamic_array(u8, tfd, tfdlen)
 
@@ -105,19 +105,25 @@ TRACE_EVENT(iwlwifi_dev_tx,
 		 * for the possible padding).
 		 */
 		__dynamic_array(u8, buf0, buf0_len)
-		__dynamic_array(u8, buf1, iwl_trace_data(skb) ? 0 : buf1_len)
+		__dynamic_array(u8, buf1, hdr_len > 0 && iwl_trace_data(skb) ?
+						0 : skb->len - hdr_len)
 	),
 	TP_fast_assign(
 		DEV_ASSIGN;
-		__entry->framelen = buf0_len + buf1_len;
+		__entry->skbaddr = skb;
+		__entry->framelen = buf0_len;
+		if (hdr_len > 0)
+			__entry->framelen += skb->len - hdr_len;
 		memcpy(__get_dynamic_array(tfd), tfd, tfdlen);
 		memcpy(__get_dynamic_array(buf0), buf0, buf0_len);
-		if (!iwl_trace_data(skb))
-			memcpy(__get_dynamic_array(buf1), buf1, buf1_len);
+		if (hdr_len > 0 && !iwl_trace_data(skb))
+			skb_copy_bits(skb, hdr_len,
+				      __get_dynamic_array(buf1),
+				      skb->len - hdr_len);
 	),
-	TP_printk("[%s] TX %.2x (%zu bytes)",
+	TP_printk("[%s] TX %.2x (%zu bytes) skbaddr=%p",
 		  __get_str(dev), ((u8 *)__get_dynamic_array(buf0))[0],
-		  __entry->framelen)
+		  __entry->framelen, __entry->skbaddr)
 );
 
 TRACE_EVENT(iwlwifi_dev_ucode_error,

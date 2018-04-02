@@ -10,7 +10,7 @@
  */
 #include <linux/module.h>
 #include <linux/ptrace.h>
-#include <linux/kallsyms.h>
+#include <linux/sched/debug.h>
 #include <linux/bug.h>
 
 #include <asm/soc.h>
@@ -374,8 +374,7 @@ static void show_trace(unsigned long *stack, unsigned long *endstack)
 			if (i % 5 == 0)
 				pr_debug("\n	    ");
 #endif
-			pr_debug(" [<%08lx>]", addr);
-			print_symbol(" %s\n", addr);
+			pr_debug(" [<%08lx>] %pS\n", addr, (void *)addr);
 			i++;
 		}
 	}

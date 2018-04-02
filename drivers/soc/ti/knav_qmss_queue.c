@@ -16,26 +16,17 @@
  * General Public License for more details.
  */
 
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/device.h>
-#include <linux/clk.h>
-#include <linux/io.h>
-#include <linux/interrupt.h>
-#include <linux/bitops.h>
-#include <linux/slab.h>
-#include <linux/spinlock.h>
-#include <linux/platform_device.h>
-#include <linux/dma-mapping.h>
-#include <linux/of.h>
-#include <linux/of_irq.h>
-#include <linux/of_device.h>
-#include <linux/of_address.h>
-#include <linux/pm_runtime.h>
-#include <linux/firmware.h>
 #include <linux/debugfs.h>
-#include <linux/seq_file.h>
-#include <linux/string.h>
+#include <linux/dma-mapping.h>
+#include <linux/firmware.h>
+#include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/of_address.h>
+#include <linux/of_device.h>
+#include <linux/of_irq.h>
+#include <linux/pm_runtime.h>
+#include <linux/slab.h>
 #include <linux/soc/ti/knav_qmss.h>
 
 #include "knav_qmss.h"
@@ -234,7 +225,7 @@ static struct knav_queue *__knav_queue_open(struct knav_queue_inst *inst,
 	if (!knav_queue_is_busy(inst)) {
 		struct knav_range_info *range = inst->range;
 
-		inst->name = kstrndup(name, KNAV_NAME_SIZE, GFP_KERNEL);
+		inst->name = kstrndup(name, KNAV_NAME_SIZE - 1, GFP_KERNEL);
 		if (range->ops && range->ops->open_queue)
 			ret = range->ops->open_queue(range, inst, flags);
 
@@ -754,6 +745,9 @@ void *knav_pool_create(const char *name,
 	bool slot_found;
 	int ret;
 
+	if (!kdev)
+		return ERR_PTR(-EPROBE_DEFER);
+
 	if (!kdev->dev)
 		return ERR_PTR(-ENODEV);
 
@@ -785,7 +779,7 @@ void *knav_pool_create(const char *name,
 		goto err;
 	}
 
-	pool->name = kstrndup(name, KNAV_NAME_SIZE, GFP_KERNEL);
+	pool->name = kstrndup(name, KNAV_NAME_SIZE - 1, GFP_KERNEL);
 	pool->kdev = kdev;
 	pool->dev = kdev->dev;
 
@@ -1228,7 +1222,7 @@ static int knav_setup_queue_range(struct knav_device *kdev,
 
 		range->num_irqs++;
 
-		if (oirq.args_count == 3)
+		if (IS_ENABLED(CONFIG_SMP) && oirq.args_count == 3)
 			range->irqs[i].cpu_map =
 				(oirq.args[2] & 0x0000ff00) >> 8;
 	}

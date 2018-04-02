@@ -26,7 +26,7 @@
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/fcntl.h>
@@ -527,7 +527,6 @@ static int cmtp_proc_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations cmtp_proc_fops = {
-	.owner		= THIS_MODULE,
 	.open		= cmtp_proc_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,

@@ -18,12 +18,14 @@
 #ifndef __MDP4_KMS_H__
 #define __MDP4_KMS_H__
 
+#include <drm/drm_panel.h>
+
 #include "msm_drv.h"
 #include "msm_kms.h"
 #include "mdp/mdp_kms.h"
 #include "mdp4.xml.h"
 
-#include "drm_panel.h"
+struct device_node;
 
 struct mdp4_kms {
 	struct mdp_kms base;
@@ -32,26 +34,22 @@ struct mdp4_kms {
 
 	int rev;
 
-	/* mapper-id used to request GEM buffer mapped for scanout: */
-	int id;
-
 	void __iomem *mmio;
 
-	struct regulator *dsi_pll_vdda;
-	struct regulator *dsi_pll_vddio;
 	struct regulator *vdd;
 
 	struct clk *clk;
 	struct clk *pclk;
 	struct clk *lut_clk;
 	struct clk *axi_clk;
-	struct msm_mmu *mmu;
 
 	struct mdp_irq error_handler;
 
+	bool rpm_enabled;
+
 	/* empty/blank cursor bo to use when cursor is "disabled" */
 	struct drm_gem_object *blank_cursor_bo;
-	uint32_t blank_cursor_iova;
+	uint64_t blank_cursor_iova;
 };
 #define to_mdp4_kms(x) container_of(x, struct mdp4_kms, base)
 
@@ -236,10 +234,6 @@ static inline struct clk *mpd4_lvds_pll_init(struct drm_device *dev)
 #endif
 
 #ifdef DOWNSTREAM_CONFIG_MSM_BUS_SCALING
-static inline int match_dev_name(struct device *dev, void *data)
-{
-	return !strcmp(dev_name(dev), data);
-}
 /* bus scaling data is associated with extra pointless platform devices,
  * "dtv", etc.. this is a bit of a hack, but we need a way for encoders
  * to find their pdata to make the bus-scaling stuff work.
@@ -247,8 +241,7 @@ static inline int match_dev_name(struct device *dev, void *data)
 static inline void *mdp4_find_pdata(const char *devname)
 {
 	struct device *dev;
-	dev = bus_find_device(&platform_bus_type, NULL,
-			(void *)devname, match_dev_name);
+	dev = bus_find_device_by_name(&platform_bus_type, NULL, devname);
 	return dev ? dev->platform_data : NULL;
 }
 #endif

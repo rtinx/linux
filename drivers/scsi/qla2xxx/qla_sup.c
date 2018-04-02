@@ -9,7 +9,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /*
  * NVRAM support routines
@@ -2461,6 +2461,7 @@ qla2x00_write_optrom_data(struct scsi_qla_host *vha, uint8_t *buf,
 				sec_mask = 0x1e000;
 				break;
 			}
+			/* fall through */
 		default:
 			/* Default to 16 kb sector size. */
 			rest_addr = 0x3fff;
@@ -3222,7 +3223,7 @@ qla24xx_read_fcp_prio_cfg(scsi_qla_host_t *vha)
 		ha->fcp_prio_cfg = vmalloc(FCP_PRIO_CFG_SIZE);
 		if (!ha->fcp_prio_cfg) {
 			ql_log(ql_log_warn, vha, 0x00d5,
-			    "Unable to allocate memory for fcp priorty data (%x).\n",
+			    "Unable to allocate memory for fcp priority data (%x).\n",
 			    FCP_PRIO_CFG_SIZE);
 			return QLA_FUNCTION_FAILED;
 		}

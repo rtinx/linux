@@ -24,17 +24,14 @@
 #define ARCH_HAS_DMA_GET_REQUIRED_MASK
 #endif
 
-extern struct dma_map_ops *tile_dma_map_ops;
-extern struct dma_map_ops *gx_pci_dma_map_ops;
-extern struct dma_map_ops *gx_legacy_pci_dma_map_ops;
-extern struct dma_map_ops *gx_hybrid_pci_dma_map_ops;
+extern const struct dma_map_ops *tile_dma_map_ops;
+extern const struct dma_map_ops *gx_pci_dma_map_ops;
+extern const struct dma_map_ops *gx_legacy_pci_dma_map_ops;
+extern const struct dma_map_ops *gx_hybrid_pci_dma_map_ops;
 
-static inline struct dma_map_ops *get_dma_ops(struct device *dev)
+static inline const struct dma_map_ops *get_arch_dma_ops(struct bus_type *bus)
 {
-	if (dev && dev->archdata.dma_ops)
-		return dev->archdata.dma_ops;
-	else
-		return tile_dma_map_ops;
+	return tile_dma_map_ops;
 }
 
 static inline dma_addr_t get_dma_offset(struct device *dev)
@@ -47,41 +44,7 @@ static inline void set_dma_offset(struct device *dev, dma_addr_t off)
 	dev->archdata.dma_offset = off;
 }
 
-static inline dma_addr_t phys_to_dma(struct device *dev, phys_addr_t paddr)
-{
-	return paddr;
-}
-
-static inline phys_addr_t dma_to_phys(struct device *dev, dma_addr_t daddr)
-{
-	return daddr;
-}
-
-static inline void dma_mark_clean(void *addr, size_t size) {}
-
-static inline void set_dma_ops(struct device *dev, struct dma_map_ops *ops)
-{
-	dev->archdata.dma_ops = ops;
-}
-
-static inline bool dma_capable(struct device *dev, dma_addr_t addr, size_t size)
-{
-	if (!dev->dma_mask)
-		return 0;
-
-	return addr + size - 1 <= *dev->dma_mask;
-}
-
 #define HAVE_ARCH_DMA_SET_MASK 1
 int dma_set_mask(struct device *dev, u64 mask);
-
-/*
- * dma_alloc_noncoherent() is #defined to return coherent memory,
- * so there's no need to do any flushing here.
- */
-static inline void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
-				  enum dma_data_direction direction)
-{
-}
 
 #endif /* _ASM_TILE_DMA_MAPPING_H */

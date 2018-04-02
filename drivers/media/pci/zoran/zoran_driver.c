@@ -38,10 +38,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/init.h>
@@ -66,7 +62,7 @@
 
 #include <asm/byteorder.h>
 #include <asm/io.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/proc_fs.h>
 
 #include <linux/mutex.h>
@@ -538,6 +534,7 @@ static int zoran_v4l_queue_frame(struct zoran_fh *fh, int num)
 				KERN_WARNING
 				"%s: %s - queueing buffer %d in state DONE!?\n",
 				ZR_DEVNAME(zr), __func__, num);
+			/* fall through */
 		case BUZ_STATE_USER:
 			/* since there is at least one unused buffer there's room for at least
 			 * one more pend[] entry */
@@ -697,6 +694,7 @@ static int zoran_jpg_queue_frame(struct zoran_fh *fh, int num,
 				KERN_WARNING
 				"%s: %s - queing frame in BUZ_STATE_DONE state!?\n",
 				ZR_DEVNAME(zr), __func__);
+			/* fall through */
 		case BUZ_STATE_USER:
 			/* since there is at least one unused buffer there's room for at
 			 *least one more pend[] entry */
@@ -975,6 +973,7 @@ static int zoran_open(struct file *file)
 	return 0;
 
 fail_fh:
+	v4l2_fh_exit(&fh->fh);
 	kfree(fh);
 fail_unlock:
 	mutex_unlock(&zr->lock);
@@ -1488,7 +1487,7 @@ zoran_set_input (struct zoran *zr,
 	if (input < 0 || input >= zr->card.inputs) {
 		dprintk(1,
 			KERN_ERR
-			"%s: %s - unnsupported input %d\n",
+			"%s: %s - unsupported input %d\n",
 			ZR_DEVNAME(zr), __func__, input);
 		return -EINVAL;
 	}
@@ -2365,94 +2364,80 @@ static int zoran_s_output(struct file *file, void *__fh, unsigned int output)
 }
 
 /* cropping (sub-frame capture) */
-static int zoran_cropcap(struct file *file, void *__fh,
-					struct v4l2_cropcap *cropcap)
+static int zoran_g_selection(struct file *file, void *__fh, struct v4l2_selection *sel)
 {
 	struct zoran_fh *fh = __fh;
 	struct zoran *zr = fh->zr;
-	int type = cropcap->type, res = 0;
 
-	memset(cropcap, 0, sizeof(*cropcap));
-	cropcap->type = type;
+	if (sel->type != V4L2_BUF_TYPE_VIDEO_OUTPUT &&
+	    sel->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
 
-	if (cropcap->type != V4L2_BUF_TYPE_VIDEO_OUTPUT &&
-	    (cropcap->type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
-	     fh->map_mode == ZORAN_MAP_MODE_RAW)) {
+	if (fh->map_mode == ZORAN_MAP_MODE_RAW) {
 		dprintk(1, KERN_ERR
-			"%s: VIDIOC_CROPCAP - subcapture only supported for compressed capture\n",
+			"%s: VIDIOC_G_SELECTION - subcapture only supported for compressed capture\n",
 			ZR_DEVNAME(zr));
-		res = -EINVAL;
-		return res;
+		return -EINVAL;
 	}
 
-	cropcap->bounds.top = cropcap->bounds.left = 0;
-	cropcap->bounds.width = BUZ_MAX_WIDTH;
-	cropcap->bounds.height = BUZ_MAX_HEIGHT;
-	cropcap->defrect.top = cropcap->defrect.left = 0;
-	cropcap->defrect.width = BUZ_MIN_WIDTH;
-	cropcap->defrect.height = BUZ_MIN_HEIGHT;
-	return res;
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		sel->r.top = fh->jpg_settings.img_y;
+		sel->r.left = fh->jpg_settings.img_x;
+		sel->r.width = fh->jpg_settings.img_width;
+		sel->r.height = fh->jpg_settings.img_height;
+		break;
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		sel->r.top = sel->r.left = 0;
+		sel->r.width = BUZ_MIN_WIDTH;
+		sel->r.height = BUZ_MIN_HEIGHT;
+		break;
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+		sel->r.top = sel->r.left = 0;
+		sel->r.width = BUZ_MAX_WIDTH;
+		sel->r.height = BUZ_MAX_HEIGHT;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
 }
 
-static int zoran_g_crop(struct file *file, void *__fh, struct v4l2_crop *crop)
+static int zoran_s_selection(struct file *file, void *__fh, struct v4l2_selection *sel)
 {
 	struct zoran_fh *fh = __fh;
 	struct zoran *zr = fh->zr;
-	int type = crop->type, res = 0;
-
-	memset(crop, 0, sizeof(*crop));
-	crop->type = type;
-
-	if (crop->type != V4L2_BUF_TYPE_VIDEO_OUTPUT &&
-	    (crop->type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
-	     fh->map_mode == ZORAN_MAP_MODE_RAW)) {
-		dprintk(1,
-			KERN_ERR
-			"%s: VIDIOC_G_CROP - subcapture only supported for compressed capture\n",
-			ZR_DEVNAME(zr));
-		res = -EINVAL;
-		return res;
-	}
-
-	crop->c.top = fh->jpg_settings.img_y;
-	crop->c.left = fh->jpg_settings.img_x;
-	crop->c.width = fh->jpg_settings.img_width;
-	crop->c.height = fh->jpg_settings.img_height;
-	return res;
-}
-
-static int zoran_s_crop(struct file *file, void *__fh, const struct v4l2_crop *crop)
-{
-	struct zoran_fh *fh = __fh;
-	struct zoran *zr = fh->zr;
-	int res = 0;
 	struct zoran_jpg_settings settings;
+	int res;
+
+	if (sel->type != V4L2_BUF_TYPE_VIDEO_OUTPUT &&
+	    sel->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+
+	if (sel->target != V4L2_SEL_TGT_CROP)
+		return -EINVAL;
+
+	if (fh->map_mode == ZORAN_MAP_MODE_RAW) {
+		dprintk(1, KERN_ERR
+			"%s: VIDIOC_S_SELECTION - subcapture only supported for compressed capture\n",
+			ZR_DEVNAME(zr));
+		return -EINVAL;
+	}
 
 	settings = fh->jpg_settings;
 
 	if (fh->buffers.allocated) {
 		dprintk(1, KERN_ERR
-			"%s: VIDIOC_S_CROP - cannot change settings while active\n",
+			"%s: VIDIOC_S_SELECTION - cannot change settings while active\n",
 			ZR_DEVNAME(zr));
-		res = -EBUSY;
-		return res;
-	}
-
-	if (crop->type != V4L2_BUF_TYPE_VIDEO_OUTPUT &&
-	    (crop->type != V4L2_BUF_TYPE_VIDEO_CAPTURE ||
-	     fh->map_mode == ZORAN_MAP_MODE_RAW)) {
-		dprintk(1, KERN_ERR
-			"%s: VIDIOC_G_CROP - subcapture only supported for compressed capture\n",
-			ZR_DEVNAME(zr));
-		res = -EINVAL;
-		return res;
+		return -EBUSY;
 	}
 
 	/* move into a form that we understand */
-	settings.img_x = crop->c.left;
-	settings.img_y = crop->c.top;
-	settings.img_width = crop->c.width;
-	settings.img_height = crop->c.height;
+	settings.img_x = sel->r.left;
+	settings.img_y = sel->r.top;
+	settings.img_width = sel->r.width;
+	settings.img_height = sel->r.height;
 
 	/* check validity */
 	res = zoran_check_jpg_settings(zr, &settings, 0);
@@ -2516,22 +2501,22 @@ static int zoran_s_jpegcomp(struct file *file, void *__fh,
 	return res;
 }
 
-static unsigned int
+static __poll_t
 zoran_poll (struct file *file,
 	    poll_table  *wait)
 {
 	struct zoran_fh *fh = file->private_data;
 	struct zoran *zr = fh->zr;
-	int res = v4l2_ctrl_poll(file, wait);
+	__poll_t res = v4l2_ctrl_poll(file, wait);
 	int frame;
 	unsigned long flags;
 
 	/* we should check whether buffers are ready to be synced on
 	 * (w/o waits - O_NONBLOCK) here
-	 * if ready for read (sync), return POLLIN|POLLRDNORM,
-	 * if ready for write (sync), return POLLOUT|POLLWRNORM,
-	 * if error, return POLLERR,
-	 * if no buffers queued or so, return POLLNVAL
+	 * if ready for read (sync), return EPOLLIN|EPOLLRDNORM,
+	 * if ready for write (sync), return EPOLLOUT|EPOLLWRNORM,
+	 * if error, return EPOLLERR,
+	 * if no buffers queued or so, return EPOLLNVAL
 	 */
 
 	switch (fh->map_mode) {
@@ -2551,7 +2536,7 @@ zoran_poll (struct file *file,
 		if (fh->buffers.active != ZORAN_FREE &&
 		    /* Buffer ready to DQBUF? */
 		    zr->v4l_buffers.buffer[frame].state == BUZ_STATE_DONE)
-			res |= POLLIN | POLLRDNORM;
+			res |= EPOLLIN | EPOLLRDNORM;
 		spin_unlock_irqrestore(&zr->spinlock, flags);
 
 		break;
@@ -2572,9 +2557,9 @@ zoran_poll (struct file *file,
 		if (fh->buffers.active != ZORAN_FREE &&
 		    zr->jpg_buffers.buffer[frame].state == BUZ_STATE_DONE) {
 			if (fh->map_mode == ZORAN_MAP_MODE_JPG_REC)
-				res |= POLLIN | POLLRDNORM;
+				res |= EPOLLIN | EPOLLRDNORM;
 			else
-				res |= POLLOUT | POLLWRNORM;
+				res |= EPOLLOUT | EPOLLWRNORM;
 		}
 		spin_unlock_irqrestore(&zr->spinlock, flags);
 
@@ -2585,7 +2570,7 @@ zoran_poll (struct file *file,
 			KERN_ERR
 			"%s: %s - internal error, unknown map_mode=%d\n",
 			ZR_DEVNAME(zr), __func__, fh->map_mode);
-		res |= POLLERR;
+		res |= EPOLLERR;
 	}
 
 	return res;
@@ -2807,22 +2792,21 @@ zoran_mmap (struct file           *file,
 }
 
 static const struct v4l2_ioctl_ops zoran_ioctl_ops = {
-	.vidioc_querycap    		    = zoran_querycap,
-	.vidioc_cropcap       		    = zoran_cropcap,
-	.vidioc_s_crop       		    = zoran_s_crop,
-	.vidioc_g_crop       		    = zoran_g_crop,
-	.vidioc_enum_input     		    = zoran_enum_input,
-	.vidioc_g_input      		    = zoran_g_input,
-	.vidioc_s_input      		    = zoran_s_input,
-	.vidioc_enum_output    		    = zoran_enum_output,
-	.vidioc_g_output     		    = zoran_g_output,
-	.vidioc_s_output     		    = zoran_s_output,
+	.vidioc_querycap		    = zoran_querycap,
+	.vidioc_s_selection		    = zoran_s_selection,
+	.vidioc_g_selection		    = zoran_g_selection,
+	.vidioc_enum_input		    = zoran_enum_input,
+	.vidioc_g_input			    = zoran_g_input,
+	.vidioc_s_input			    = zoran_s_input,
+	.vidioc_enum_output		    = zoran_enum_output,
+	.vidioc_g_output		    = zoran_g_output,
+	.vidioc_s_output		    = zoran_s_output,
 	.vidioc_g_fbuf			    = zoran_g_fbuf,
 	.vidioc_s_fbuf			    = zoran_s_fbuf,
-	.vidioc_g_std 			    = zoran_g_std,
-	.vidioc_s_std 			    = zoran_s_std,
-	.vidioc_g_jpegcomp 		    = zoran_g_jpegcomp,
-	.vidioc_s_jpegcomp 		    = zoran_s_jpegcomp,
+	.vidioc_g_std			    = zoran_g_std,
+	.vidioc_s_std			    = zoran_s_std,
+	.vidioc_g_jpegcomp		    = zoran_g_jpegcomp,
+	.vidioc_s_jpegcomp		    = zoran_s_jpegcomp,
 	.vidioc_overlay			    = zoran_overlay,
 	.vidioc_reqbufs			    = zoran_reqbufs,
 	.vidioc_querybuf		    = zoran_querybuf,
@@ -2830,18 +2814,18 @@ static const struct v4l2_ioctl_ops zoran_ioctl_ops = {
 	.vidioc_dqbuf			    = zoran_dqbuf,
 	.vidioc_streamon		    = zoran_streamon,
 	.vidioc_streamoff		    = zoran_streamoff,
-	.vidioc_enum_fmt_vid_cap 	    = zoran_enum_fmt_vid_cap,
-	.vidioc_enum_fmt_vid_out 	    = zoran_enum_fmt_vid_out,
-	.vidioc_enum_fmt_vid_overlay 	    = zoran_enum_fmt_vid_overlay,
-	.vidioc_g_fmt_vid_cap 		    = zoran_g_fmt_vid_cap,
+	.vidioc_enum_fmt_vid_cap	    = zoran_enum_fmt_vid_cap,
+	.vidioc_enum_fmt_vid_out	    = zoran_enum_fmt_vid_out,
+	.vidioc_enum_fmt_vid_overlay	    = zoran_enum_fmt_vid_overlay,
+	.vidioc_g_fmt_vid_cap		    = zoran_g_fmt_vid_cap,
 	.vidioc_g_fmt_vid_out               = zoran_g_fmt_vid_out,
 	.vidioc_g_fmt_vid_overlay           = zoran_g_fmt_vid_overlay,
-	.vidioc_s_fmt_vid_cap  		    = zoran_s_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap		    = zoran_s_fmt_vid_cap,
 	.vidioc_s_fmt_vid_out               = zoran_s_fmt_vid_out,
 	.vidioc_s_fmt_vid_overlay           = zoran_s_fmt_vid_overlay,
-	.vidioc_try_fmt_vid_cap  	    = zoran_try_fmt_vid_cap,
-	.vidioc_try_fmt_vid_out 	    = zoran_try_fmt_vid_out,
-	.vidioc_try_fmt_vid_overlay 	    = zoran_try_fmt_vid_overlay,
+	.vidioc_try_fmt_vid_cap		    = zoran_try_fmt_vid_cap,
+	.vidioc_try_fmt_vid_out		    = zoran_try_fmt_vid_out,
+	.vidioc_try_fmt_vid_overlay	    = zoran_try_fmt_vid_overlay,
 	.vidioc_subscribe_event             = v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event           = v4l2_event_unsubscribe,
 };
@@ -2855,7 +2839,7 @@ static const struct v4l2_file_operations zoran_fops = {
 	.poll = zoran_poll,
 };
 
-struct video_device zoran_template = {
+const struct video_device zoran_template = {
 	.name = ZORAN_NAME,
 	.fops = &zoran_fops,
 	.ioctl_ops = &zoran_ioctl_ops,

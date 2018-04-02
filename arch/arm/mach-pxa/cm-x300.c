@@ -25,13 +25,13 @@
 #include <linux/gpio.h>
 #include <linux/dm9000.h>
 #include <linux/leds.h>
-#include <linux/rtc-v3020.h>
+#include <linux/platform_data/rtc-v3020.h>
 #include <linux/pwm.h>
 #include <linux/pwm_backlight.h>
 
 #include <linux/i2c.h>
 #include <linux/platform_data/pca953x.h>
-#include <linux/i2c/pxa-i2c.h>
+#include <linux/platform_data/i2c-pxa.h>
 
 #include <linux/mfd/da903x.h>
 #include <linux/regulator/machine.h>

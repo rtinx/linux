@@ -11,10 +11,6 @@
  * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110, USA
- *
  ******************************************************************************/
 
 #include <pwrseqcmd.h>
@@ -26,7 +22,7 @@
 u8 rtl88eu_pwrseqcmdparsing(struct adapter *padapter, u8 cut_vers,
 			    struct wl_pwr_cfg pwrseqcmd[])
 {
-	struct wl_pwr_cfg pwrcfgcmd = {0};
+	struct wl_pwr_cfg pwrcfgcmd;
 	u8 poll_bit = false;
 	u32 aryidx = 0;
 	u8 value = 0;

@@ -18,9 +18,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
- * USA
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -28,7 +26,6 @@
 #include <linux/crypto.h>
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/hardirq.h>
 #include <crypto/algapi.h>
 #include <crypto/cryptd.h>
 #include <crypto/ablk_helper.h>
@@ -71,7 +68,8 @@ int ablk_encrypt(struct ablkcipher_request *req)
 	struct crypto_ablkcipher *tfm = crypto_ablkcipher_reqtfm(req);
 	struct async_helper_ctx *ctx = crypto_ablkcipher_ctx(tfm);
 
-	if (!may_use_simd()) {
+	if (!may_use_simd() ||
+	    (in_atomic() && cryptd_ablkcipher_queued(ctx->cryptd_tfm))) {
 		struct ablkcipher_request *cryptd_req =
 			ablkcipher_request_ctx(req);
 
@@ -90,7 +88,8 @@ int ablk_decrypt(struct ablkcipher_request *req)
 	struct crypto_ablkcipher *tfm = crypto_ablkcipher_reqtfm(req);
 	struct async_helper_ctx *ctx = crypto_ablkcipher_ctx(tfm);
 
-	if (!may_use_simd()) {
+	if (!may_use_simd() ||
+	    (in_atomic() && cryptd_ablkcipher_queued(ctx->cryptd_tfm))) {
 		struct ablkcipher_request *cryptd_req =
 			ablkcipher_request_ctx(req);
 

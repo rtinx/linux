@@ -200,7 +200,7 @@ static int udf_name_from_CS0(uint8_t *str_o, int str_max_len,
 	cmp_id = ocu[0];
 	if (cmp_id != 8 && cmp_id != 16) {
 		memset(str_o, 0, str_max_len);
-		pr_err("unknown compression code (%d)\n", cmp_id);
+		pr_err("unknown compression code (%u)\n", cmp_id);
 		return -EINVAL;
 	}
 	u_ch = cmp_id >> 3;
@@ -335,9 +335,21 @@ try_again:
 	return u_len;
 }
 
-int udf_CS0toUTF8(uint8_t *utf_o, int o_len, const uint8_t *ocu_i, int i_len)
+int udf_dstrCS0toUTF8(uint8_t *utf_o, int o_len,
+		      const uint8_t *ocu_i, int i_len)
 {
-	return udf_name_from_CS0(utf_o, o_len, ocu_i, i_len,
+	int s_len = 0;
+
+	if (i_len > 0) {
+		s_len = ocu_i[i_len - 1];
+		if (s_len >= i_len) {
+			pr_err("incorrect dstring lengths (%d/%d)\n",
+			       s_len, i_len);
+			return -EINVAL;
+		}
+	}
+
+	return udf_name_from_CS0(utf_o, o_len, ocu_i, s_len,
 				 udf_uni2char_utf8, 0);
 }
 

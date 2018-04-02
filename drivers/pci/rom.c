@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/pci/rom.c
  *
@@ -35,6 +36,11 @@ int pci_enable_rom(struct pci_dev *pdev)
 	if (res->flags & IORESOURCE_ROM_SHADOW)
 		return 0;
 
+	/*
+	 * Ideally pci_update_resource() would update the ROM BAR address,
+	 * and we would only set the enable bit here.  But apparently some
+	 * devices have buggy ROM BARs that read as zero when disabled.
+	 */
 	pcibios_resource_to_bus(pdev->bus, &region, res);
 	pci_read_config_dword(pdev, pdev->rom_base_reg, &rom_addr);
 	rom_addr &= ~PCI_ROM_ADDRESS_MASK;
@@ -87,15 +93,15 @@ size_t pci_get_rom_size(struct pci_dev *pdev, void __iomem *rom, size_t size)
 		void __iomem *pds;
 		/* Standard PCI ROMs start out with these bytes 55 AA */
 		if (readw(image) != 0xAA55) {
-			dev_err(&pdev->dev, "Invalid PCI ROM header signature: expecting 0xaa55, got %#06x\n",
-				readw(image));
+			pci_info(pdev, "Invalid PCI ROM header signature: expecting 0xaa55, got %#06x\n",
+				 readw(image));
 			break;
 		}
 		/* get the PCI data structure and check its "PCIR" signature */
 		pds = image + readw(image + 24);
 		if (readl(pds) != 0x52494350) {
-			dev_err(&pdev->dev, "Invalid PCI ROM data signature: expecting 0x52494350, got %#010x\n",
-				readl(pds));
+			pci_info(pdev, "Invalid PCI ROM data signature: expecting 0x52494350, got %#010x\n",
+				 readl(pds));
 			break;
 		}
 		last_image = readb(pds + 21) & 0x80;
@@ -142,12 +148,8 @@ void __iomem *pci_map_rom(struct pci_dev *pdev, size_t *size)
 		return NULL;
 
 	rom = ioremap(start, *size);
-	if (!rom) {
-		/* restore enable if ioremap fails */
-		if (!(res->flags & IORESOURCE_ROM_ENABLE))
-			pci_disable_rom(pdev);
-		return NULL;
-	}
+	if (!rom)
+		goto err_ioremap;
 
 	/*
 	 * Try to find the true size of the ROM since sometimes the PCI window
@@ -155,7 +157,18 @@ void __iomem *pci_map_rom(struct pci_dev *pdev, size_t *size)
 	 * True size is important if the ROM is going to be copied.
 	 */
 	*size = pci_get_rom_size(pdev, rom, *size);
+	if (!*size)
+		goto invalid_rom;
+
 	return rom;
+
+invalid_rom:
+	iounmap(rom);
+err_ioremap:
+	/* restore enable if ioremap fails */
+	if (!(res->flags & IORESOURCE_ROM_ENABLE))
+		pci_disable_rom(pdev);
+	return NULL;
 }
 EXPORT_SYMBOL(pci_map_rom);
 

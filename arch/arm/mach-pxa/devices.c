@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/spi/pxa2xx_spi.h>
-#include <linux/i2c/pxa-i2c.h>
+#include <linux/platform_data/i2c-pxa.h>
 
 #include "udc.h"
 #include <linux/platform_data/usb-pxa3xx-ulpi.h>
@@ -1235,5 +1236,6 @@ static struct platform_device pxa2xx_pxa_dma = {
 void __init pxa2xx_set_dmac_info(int nb_channels, int nb_requestors)
 {
 	pxa_dma_pdata.dma_channels = nb_channels;
+	pxa_dma_pdata.nb_requestors = nb_requestors;
 	pxa_register_device(&pxa2xx_pxa_dma, &pxa_dma_pdata);
 }

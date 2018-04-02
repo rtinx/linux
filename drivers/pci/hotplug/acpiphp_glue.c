@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * ACPI PCI HotPlug glue functions to ACPI CA subsystem
  *
@@ -10,21 +11,6 @@
  * Copyright (C) 2005 Intel Corporation
  *
  * All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or (at
- * your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, GOOD TITLE or
- * NON INFRINGEMENT.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  * Send feedback to <kristen.c.accardi@intel.com>
  *
@@ -222,35 +208,6 @@ static void acpiphp_post_dock_fixup(struct acpi_device *adev)
 	acpiphp_let_context_go(context);
 }
 
-/* Check whether the PCI device is managed by native PCIe hotplug driver */
-static bool device_is_managed_by_native_pciehp(struct pci_dev *pdev)
-{
-	u32 reg32;
-	acpi_handle tmp;
-	struct acpi_pci_root *root;
-
-	/* Check whether the PCIe port supports native PCIe hotplug */
-	if (pcie_capability_read_dword(pdev, PCI_EXP_SLTCAP, &reg32))
-		return false;
-	if (!(reg32 & PCI_EXP_SLTCAP_HPC))
-		return false;
-
-	/*
-	 * Check whether native PCIe hotplug has been enabled for
-	 * this PCIe hierarchy.
-	 */
-	tmp = acpi_find_root_bridge_handle(pdev);
-	if (!tmp)
-		return false;
-	root = acpi_pci_find_root(tmp);
-	if (!root)
-		return false;
-	if (!(root->osc_control_set & OSC_PCI_EXPRESS_NATIVE_HP_CONTROL))
-		return false;
-
-	return true;
-}
-
 /**
  * acpiphp_add_context - Add ACPIPHP context to an ACPI device object.
  * @handle: ACPI handle of the object to add a context to.
@@ -334,7 +291,7 @@ static acpi_status acpiphp_add_context(acpi_handle handle, u32 lvl, void *data,
 	 * expose slots to user space in those cases.
 	 */
 	if ((acpi_pci_check_ejectable(pbus, handle) || is_dock_device(adev))
-	    && !(pdev && device_is_managed_by_native_pciehp(pdev))) {
+	    && !(pdev && pdev->is_hotplug_bridge && pciehp_is_native(pdev))) {
 		unsigned long long sun;
 		int retval;
 
@@ -491,18 +448,15 @@ static void enable_slot(struct acpiphp_slot *slot)
 	acpiphp_rescan_slot(slot);
 	max = acpiphp_max_busnr(bus);
 	for (pass = 0; pass < 2; pass++) {
-		list_for_each_entry(dev, &bus->devices, bus_list) {
+		for_each_pci_bridge(dev, bus) {
 			if (PCI_SLOT(dev->devfn) != slot->device)
 				continue;
 
-			if (pci_is_bridge(dev)) {
-				max = pci_scan_bridge(bus, dev, max, pass);
-				if (pass && dev->subordinate) {
-					check_hotplug_bridge(slot, dev);
-					pcibios_resource_survey_bus(dev->subordinate);
-					__pci_bus_size_bridges(dev->subordinate,
-							       &add_list);
-				}
+			max = pci_scan_bridge(bus, dev, max, pass);
+			if (pass && dev->subordinate) {
+				check_hotplug_bridge(slot, dev);
+				pcibios_resource_survey_bus(dev->subordinate);
+				__pci_bus_size_bridges(dev->subordinate, &add_list);
 			}
 		}
 	}
@@ -675,6 +629,9 @@ static void acpiphp_check_bridge(struct acpiphp_bridge *bridge)
 	if (bridge->is_going_away)
 		return;
 
+	if (bridge->pci_dev)
+		pm_runtime_get_sync(&bridge->pci_dev->dev);
+
 	list_for_each_entry(slot, &bridge->slots, node) {
 		struct pci_bus *bus = slot->bus;
 		struct pci_dev *dev, *tmp;
@@ -694,6 +651,9 @@ static void acpiphp_check_bridge(struct acpiphp_bridge *bridge)
 			disable_slot(slot);
 		}
 	}
+
+	if (bridge->pci_dev)
+		pm_runtime_put(&bridge->pci_dev->dev);
 }
 
 /*
@@ -837,10 +797,8 @@ void acpiphp_enumerate_slots(struct pci_bus *bus)
 
 	handle = adev->handle;
 	bridge = kzalloc(sizeof(struct acpiphp_bridge), GFP_KERNEL);
-	if (!bridge) {
-		acpi_handle_err(handle, "No memory for bridge object\n");
+	if (!bridge)
 		return;
-	}
 
 	INIT_LIST_HEAD(&bridge->slots);
 	kref_init(&bridge->ref);

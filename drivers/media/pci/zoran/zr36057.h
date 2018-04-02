@@ -12,10 +12,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #ifndef _ZR36057_H_
@@ -107,8 +103,8 @@
 #define ZR36057_ICR_IntPinEn            (1<<24)
 
 #define ZR36057_I2CBR           0x044	/* I2C Bus Register */
-#define ZR36057_I2CBR_SDA       	(1<<1)
-#define ZR36057_I2CBR_SCL       	(1<<0)
+#define ZR36057_I2CBR_SDA		(1<<1)
+#define ZR36057_I2CBR_SCL		(1<<0)
 
 #define ZR36057_JMC             0x100	/* JPEG Mode and Control */
 #define ZR36057_JMC_JPG                 (1 << 31)

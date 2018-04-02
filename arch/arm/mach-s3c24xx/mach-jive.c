@@ -1,14 +1,9 @@
-/* linux/arch/arm/mach-s3c2410/mach-jive.c
- *
- * Copyright 2007 Simtec Electronics
- *	Ben Dooks <ben@simtec.co.uk>
- *
- * http://armlinux.simtec.co.uk/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
-*/
+// SPDX-License-Identifier: GPL-2.0
+//
+// Copyright 2007 Simtec Electronics
+//	Ben Dooks <ben@simtec.co.uk>
+//
+// http://armlinux.simtec.co.uk/
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -43,7 +38,7 @@
 #include <asm/mach-types.h>
 
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/nand_ecc.h>
 #include <linux/mtd/partitions.h>
 
@@ -232,6 +227,7 @@ static struct s3c2410_platform_nand __initdata jive_nand_info = {
 	.twrph1		= 40,
 	.sets		= jive_nand_sets,
 	.nr_sets	= ARRAY_SIZE(jive_nand_sets),
+	.ecc_mode       = NAND_ECC_SOFT,
 };
 
 static int __init jive_mtdset(char *options)
@@ -483,7 +479,7 @@ static int jive_pm_suspend(void)
 	 * correct address to resume from. */
 
 	__raw_writel(0x2BED, S3C2412_INFORM0);
-	__raw_writel(virt_to_phys(s3c_cpu_resume), S3C2412_INFORM1);
+	__raw_writel(__pa_symbol(s3c_cpu_resume), S3C2412_INFORM1);
 
 	return 0;
 }

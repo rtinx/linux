@@ -19,8 +19,7 @@
  * the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program;  if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 
@@ -40,7 +39,8 @@
 #ifdef CONFIG_NETLABEL
 void selinux_netlbl_cache_invalidate(void);
 
-void selinux_netlbl_err(struct sk_buff *skb, int error, int gateway);
+void selinux_netlbl_err(struct sk_buff *skb, u16 family, int error,
+			int gateway);
 
 void selinux_netlbl_sk_security_free(struct sk_security_struct *sksec);
 void selinux_netlbl_sk_security_reset(struct sk_security_struct *sksec);
@@ -72,6 +72,7 @@ static inline void selinux_netlbl_cache_invalidate(void)
 }
 
 static inline void selinux_netlbl_err(struct sk_buff *skb,
+				      u16 family,
 				      int error,
 				      int gateway)
 {

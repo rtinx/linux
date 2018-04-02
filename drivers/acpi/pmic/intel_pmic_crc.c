@@ -141,7 +141,8 @@ static int intel_crc_pmic_update_aux(struct regmap *regmap, int reg, int raw)
 		regmap_update_bits(regmap, reg - 1, 0x3, raw >> 8) ? -EIO : 0;
 }
 
-static int intel_crc_pmic_get_policy(struct regmap *regmap, int reg, u64 *value)
+static int intel_crc_pmic_get_policy(struct regmap *regmap,
+					int reg, int bit, u64 *value)
 {
 	int pen;
 
@@ -152,7 +153,7 @@ static int intel_crc_pmic_get_policy(struct regmap *regmap, int reg, u64 *value)
 }
 
 static int intel_crc_pmic_update_policy(struct regmap *regmap,
-					int reg, int enable)
+					int reg, int bit, int enable)
 {
 	int alert0;
 
@@ -200,9 +201,4 @@ static struct platform_driver intel_crc_pmic_opregion_driver = {
 		.name = "crystal_cove_pmic",
 	},
 };
-
-static int __init intel_crc_pmic_opregion_driver_init(void)
-{
-	return platform_driver_register(&intel_crc_pmic_opregion_driver);
-}
-device_initcall(intel_crc_pmic_opregion_driver_init);
+builtin_platform_driver(intel_crc_pmic_opregion_driver);

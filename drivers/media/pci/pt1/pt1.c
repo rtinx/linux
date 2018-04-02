@@ -4,7 +4,7 @@
  * Copyright (C) 2009 HIRANO Takahito <hiranotaka@zng.info>
  *
  * based on pt1dvr - http://pt1dvr.sourceforge.jp/
- * 	by Tomoaki Ishikawa <tomy@users.sourceforge.jp>
+ *	by Tomoaki Ishikawa <tomy@users.sourceforge.jp>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,13 +15,10 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/kernel.h>
+#include <linux/sched/signal.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -30,11 +27,11 @@
 #include <linux/freezer.h>
 #include <linux/ratelimit.h>
 
-#include "dvbdev.h"
-#include "dvb_demux.h"
-#include "dmxdev.h"
-#include "dvb_net.h"
-#include "dvb_frontend.h"
+#include <media/dvbdev.h>
+#include <media/dvb_demux.h>
+#include <media/dmxdev.h>
+#include <media/dvb_net.h>
+#include <media/dvb_frontend.h>
 
 #include "va1j5jf8007t.h"
 #include "va1j5jf8007s.h"
@@ -119,8 +116,8 @@ static u32 pt1_read_reg(struct pt1 *pt1, int reg)
 	return readl(pt1->regs + reg * 4);
 }
 
-static int pt1_nr_tables = 8;
-module_param_named(nr_tables, pt1_nr_tables, int, 0);
+static unsigned int pt1_nr_tables = 8;
+module_param_named(nr_tables, pt1_nr_tables, uint, 0);
 
 static void pt1_increment_table_count(struct pt1 *pt1)
 {
@@ -282,13 +279,12 @@ static int pt1_filter(struct pt1 *pt1, struct pt1_buffer_page *page)
 			continue;
 
 		if (upacket >> 24 & 1)
-			printk_ratelimited(KERN_INFO "earth-pt1: device "
-				"buffer overflowing. table[%d] buf[%d]\n",
+			printk_ratelimited(KERN_INFO "earth-pt1: device buffer overflowing. table[%d] buf[%d]\n",
 				pt1->table_index, pt1->buf_index);
 		sc = upacket >> 26 & 0x7;
 		if (adap->st_count != -1 && sc != ((adap->st_count + 1) & 0x7))
-			printk_ratelimited(KERN_INFO "earth-pt1: data loss"
-				" in streamID(adapter)[%d]\n", index);
+			printk_ratelimited(KERN_INFO "earth-pt1: data loss in streamID(adapter)[%d]\n",
+					   index);
 		adap->st_count = sc;
 
 		buf = adap->buf;
@@ -447,6 +443,9 @@ static int pt1_init_tables(struct pt1 *pt1)
 	int i, ret;
 	u32 first_pfn, pfn;
 
+	if (!pt1_nr_tables)
+		return 0;
+
 	tables = vmalloc(sizeof(struct pt1_table) * pt1_nr_tables);
 	if (tables == NULL)
 		return -ENOMEM;
@@ -454,12 +453,10 @@ static int pt1_init_tables(struct pt1 *pt1)
 	pt1_init_table_count(pt1);
 
 	i = 0;
-	if (pt1_nr_tables) {
-		ret = pt1_init_table(pt1, &tables[0], &first_pfn);
-		if (ret)
-			goto err;
-		i++;
-	}
+	ret = pt1_init_table(pt1, &tables[0], &first_pfn);
+	if (ret)
+		goto err;
+	i++;
 
 	while (i < pt1_nr_tables) {
 		ret = pt1_init_table(pt1, &tables[i], &pfn);
@@ -1206,7 +1203,7 @@ err:
 
 }
 
-static struct pci_device_id pt1_id_table[] = {
+static const struct pci_device_id pt1_id_table[] = {
 	{ PCI_DEVICE(0x10ee, 0x211a) },
 	{ PCI_DEVICE(0x10ee, 0x222a) },
 	{ },

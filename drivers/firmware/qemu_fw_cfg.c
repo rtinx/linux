@@ -10,9 +10,9 @@
  * and select subsets of aarch64), a Device Tree node (on arm), or using
  * a kernel module (or command line) parameter with the following syntax:
  *
- *      [fw_cfg.]ioport=<size>@<base>[:<ctrl_off>:<data_off>]
+ *      [qemu_fw_cfg.]ioport=<size>@<base>[:<ctrl_off>:<data_off>]
  * or
- *      [fw_cfg.]mmio=<size>@<base>[:<ctrl_off>:<data_off>]
+ *      [qemu_fw_cfg.]mmio=<size>@<base>[:<ctrl_off>:<data_off>]
  *
  * where:
  *      <size>     := size of ioport or mmio range
@@ -21,9 +21,9 @@
  *      <data_off> := (optional) offset of data register
  *
  * e.g.:
- *      fw_cfg.ioport=2@0x510:0:1		(the default on x86)
+ *      qemu_fw_cfg.ioport=2@0x510:0:1		(the default on x86)
  * or
- *      fw_cfg.mmio=0xA@0x9020000:8:0		(the default on arm)
+ *      qemu_fw_cfg.mmio=0xA@0x9020000:8:0	(the default on arm)
  */
 
 #include <linux/module.h>
@@ -77,7 +77,7 @@ static inline u16 fw_cfg_sel_endianness(u16 key)
 static inline void fw_cfg_read_blob(u16 key,
 				    void *buf, loff_t pos, size_t count)
 {
-	u32 glk;
+	u32 glk = -1U;
 	acpi_status status;
 
 	/* If we have ACPI, ensure mutual exclusion against any potential
@@ -125,9 +125,7 @@ static void fw_cfg_io_cleanup(void)
 #  define FW_CFG_CTRL_OFF 0x00
 #  define FW_CFG_DATA_OFF 0x01
 # else
-#  warning "QEMU FW_CFG may not be available on this architecture!"
-#  define FW_CFG_CTRL_OFF 0x00
-#  define FW_CFG_DATA_OFF 0x01
+#  error "QEMU FW_CFG not available on this architecture!"
 # endif
 #endif
 
@@ -584,9 +582,10 @@ static int fw_cfg_sysfs_remove(struct platform_device *pdev)
 {
 	pr_debug("fw_cfg: unloading.\n");
 	fw_cfg_sysfs_cache_cleanup();
+	sysfs_remove_file(fw_cfg_top_ko, &fw_cfg_rev_attr.attr);
+	fw_cfg_io_cleanup();
 	fw_cfg_kset_unregister_recursive(fw_cfg_fname_kset);
 	fw_cfg_kobj_cleanup(fw_cfg_sel_ko);
-	fw_cfg_io_cleanup();
 	return 0;
 }
 
@@ -695,10 +694,8 @@ static int fw_cfg_cmdline_set(const char *arg, const struct kernel_param *kp)
 	 */
 	fw_cfg_cmdline_dev = platform_device_register_simple("fw_cfg",
 					PLATFORM_DEVID_NONE, res, processed);
-	if (IS_ERR(fw_cfg_cmdline_dev))
-		return PTR_ERR(fw_cfg_cmdline_dev);
 
-	return 0;
+	return PTR_ERR_OR_ZERO(fw_cfg_cmdline_dev);
 }
 
 static int fw_cfg_cmdline_get(char *buf, const struct kernel_param *kp)

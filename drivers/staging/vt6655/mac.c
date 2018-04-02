@@ -1,21 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 1996, 2003 VIA Networking Technologies, Inc.
  * All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
  *
  * File: mac.c
  *
@@ -47,7 +33,8 @@
  *
  * Revision History:
  *      08-22-2003 Kyle Hsu     :  Porting MAC functions from sim53
- *      09-03-2003 Bryan YC Fan :  Add MACvClearBusSusInd()& MACvEnableBusSusEn()
+ *      09-03-2003 Bryan YC Fan :  Add MACvClearBusSusInd()&
+ *				   MACvEnableBusSusEn()
  *      09-18-2003 Jerry Chen   :  Add MACvSetKeyEntry & MACvDisableKeyEntry
  *
  */
@@ -138,13 +125,13 @@ bool MACbIsIntDisable(struct vnt_private *priv)
  * Return Value: none
  *
  */
-void MACvSetShortRetryLimit(struct vnt_private *priv, unsigned char byRetryLimit)
+void MACvSetShortRetryLimit(struct vnt_private *priv,
+			    unsigned char byRetryLimit)
 {
 	void __iomem *io_base = priv->PortOffset;
 	/* set SRT */
 	iowrite8(byRetryLimit, io_base + MAC_REG_SRT);
 }
-
 
 /*
  * Description:
@@ -160,7 +147,8 @@ void MACvSetShortRetryLimit(struct vnt_private *priv, unsigned char byRetryLimit
  * Return Value: none
  *
  */
-void MACvSetLongRetryLimit(struct vnt_private *priv, unsigned char byRetryLimit)
+void MACvSetLongRetryLimit(struct vnt_private *priv,
+			   unsigned char byRetryLimit)
 {
 	void __iomem *io_base = priv->PortOffset;
 	/* set LRT */
@@ -304,7 +292,8 @@ bool MACbSoftwareReset(struct vnt_private *priv)
 
 /*
  * Description:
- *      save some important register's value, then do reset, then restore register's value
+ *      save some important register's value, then do reset, then restore
+ *	register's value
  *
  * Parameters:
  *  In:
@@ -317,7 +306,7 @@ bool MACbSoftwareReset(struct vnt_private *priv)
  */
 bool MACbSafeSoftwareReset(struct vnt_private *priv)
 {
-	unsigned char abyTmpRegData[MAC_MAX_CONTEXT_SIZE_PAGE0+MAC_MAX_CONTEXT_SIZE_PAGE1];
+	unsigned char abyTmpRegData[MAC_MAX_CONTEXT_SIZE_PAGE0 + MAC_MAX_CONTEXT_SIZE_PAGE1];
 	bool bRetVal;
 
 	/* PATCH....
@@ -738,7 +727,8 @@ void MACvTimer0MicroSDelay(struct vnt_private *priv, unsigned int uDelay)
  * Return Value: none
  *
  */
-void MACvOneShotTimer1MicroSec(struct vnt_private *priv, unsigned int uDelayTime)
+void MACvOneShotTimer1MicroSec(struct vnt_private *priv,
+			       unsigned int uDelayTime)
 {
 	void __iomem *io_base = priv->PortOffset;
 
@@ -810,7 +800,7 @@ void MACvSetKeyEntry(struct vnt_private *priv, unsigned short wKeyCtl,
 	if (byLocalID <= 1)
 		return;
 
-	pr_debug("MACvSetKeyEntry\n");
+	pr_debug("%s\n", __func__);
 	offset = MISCFIFO_KEYETRY0;
 	offset += (uEntryIdx * MISCFIFO_KEYENTRYSIZE);
 

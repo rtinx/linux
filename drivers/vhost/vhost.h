@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _VHOST_H
 #define _VHOST_H
 
@@ -15,13 +16,11 @@
 struct vhost_work;
 typedef void (*vhost_work_fn_t)(struct vhost_work *work);
 
+#define VHOST_WORK_QUEUED 1
 struct vhost_work {
-	struct list_head	  node;
+	struct llist_node	  node;
 	vhost_work_fn_t		  fn;
-	wait_queue_head_t	  done;
-	int			  flushing;
-	unsigned		  queue_seq;
-	unsigned		  done_seq;
+	unsigned long		  flags;
 };
 
 /* Poll a file (eventfd or socket) */
@@ -29,9 +28,9 @@ struct vhost_work {
 struct vhost_poll {
 	poll_table                table;
 	wait_queue_head_t        *wqh;
-	wait_queue_t              wait;
+	wait_queue_entry_t              wait;
 	struct vhost_work	  work;
-	unsigned long		  mask;
+	__poll_t		  mask;
 	struct vhost_dev	 *dev;
 };
 
@@ -40,7 +39,7 @@ void vhost_work_queue(struct vhost_dev *dev, struct vhost_work *work);
 bool vhost_has_work(struct vhost_dev *dev);
 
 void vhost_poll_init(struct vhost_poll *poll, vhost_work_fn_t fn,
-		     unsigned long mask, struct vhost_dev *dev);
+		     __poll_t mask, struct vhost_dev *dev);
 int vhost_poll_start(struct vhost_poll *poll, struct file *file);
 void vhost_poll_stop(struct vhost_poll *poll);
 void vhost_poll_flush(struct vhost_poll *poll);
@@ -53,6 +52,34 @@ struct vhost_log {
 	u64 len;
 };
 
+#define START(node) ((node)->start)
+#define LAST(node) ((node)->last)
+
+struct vhost_umem_node {
+	struct rb_node rb;
+	struct list_head link;
+	__u64 start;
+	__u64 last;
+	__u64 size;
+	__u64 userspace_addr;
+	__u32 perm;
+	__u32 flags_padding;
+	__u64 __subtree_last;
+};
+
+struct vhost_umem {
+	struct rb_root_cached umem_tree;
+	struct list_head umem_list;
+	int numem;
+};
+
+enum vhost_uaddr_type {
+	VHOST_ADDR_DESC = 0,
+	VHOST_ADDR_AVAIL = 1,
+	VHOST_ADDR_USED = 2,
+	VHOST_NUM_ADDRS = 3,
+};
+
 /* The virtqueue structure describes a queue attached to a device. */
 struct vhost_virtqueue {
 	struct vhost_dev *dev;
@@ -63,9 +90,8 @@ struct vhost_virtqueue {
 	struct vring_desc __user *desc;
 	struct vring_avail __user *avail;
 	struct vring_used __user *used;
+	const struct vhost_umem_node *meta_iotlb[VHOST_NUM_ADDRS];
 	struct file *kick;
-	struct file *call;
-	struct file *error;
 	struct eventfd_ctx *call_ctx;
 	struct eventfd_ctx *error_ctx;
 	struct eventfd_ctx *log_ctx;
@@ -98,10 +124,12 @@ struct vhost_virtqueue {
 	u64 log_addr;
 
 	struct iovec iov[UIO_MAXIOV];
+	struct iovec iotlb_iov[64];
 	struct iovec *indirect;
 	struct vring_used_elem *heads;
 	/* Protected by virtqueue mutex. */
-	struct vhost_memory *memory;
+	struct vhost_umem *umem;
+	struct vhost_umem *iotlb;
 	void *private_data;
 	u64 acked_features;
 	/* Log write descriptors */
@@ -118,26 +146,35 @@ struct vhost_virtqueue {
 	u32 busyloop_timeout;
 };
 
+struct vhost_msg_node {
+  struct vhost_msg msg;
+  struct vhost_virtqueue *vq;
+  struct list_head node;
+};
+
 struct vhost_dev {
-	struct vhost_memory *memory;
 	struct mm_struct *mm;
 	struct mutex mutex;
 	struct vhost_virtqueue **vqs;
 	int nvqs;
-	struct file *log_file;
 	struct eventfd_ctx *log_ctx;
-	spinlock_t work_lock;
-	struct list_head work_list;
+	struct llist_head work_list;
 	struct task_struct *worker;
+	struct vhost_umem *umem;
+	struct vhost_umem *iotlb;
+	spinlock_t iotlb_lock;
+	struct list_head read_list;
+	struct list_head pending_list;
+	wait_queue_head_t wait;
 };
 
 void vhost_dev_init(struct vhost_dev *, struct vhost_virtqueue **vqs, int nvqs);
 long vhost_dev_set_owner(struct vhost_dev *dev);
 bool vhost_dev_has_owner(struct vhost_dev *dev);
 long vhost_dev_check_owner(struct vhost_dev *);
-struct vhost_memory *vhost_dev_reset_owner_prepare(void);
-void vhost_dev_reset_owner(struct vhost_dev *, struct vhost_memory *);
-void vhost_dev_cleanup(struct vhost_dev *, bool locked);
+struct vhost_umem *vhost_dev_reset_owner_prepare(void);
+void vhost_dev_reset_owner(struct vhost_dev *, struct vhost_umem *);
+void vhost_dev_cleanup(struct vhost_dev *);
 void vhost_dev_stop(struct vhost_dev *);
 long vhost_dev_ioctl(struct vhost_dev *, unsigned int ioctl, void __user *argp);
 long vhost_vring_ioctl(struct vhost_dev *d, int ioctl, void __user *argp);
@@ -165,6 +202,21 @@ bool vhost_enable_notify(struct vhost_dev *, struct vhost_virtqueue *);
 
 int vhost_log_write(struct vhost_virtqueue *vq, struct vhost_log *log,
 		    unsigned int log_num, u64 len);
+int vq_iotlb_prefetch(struct vhost_virtqueue *vq);
+
+struct vhost_msg_node *vhost_new_msg(struct vhost_virtqueue *vq, int type);
+void vhost_enqueue_msg(struct vhost_dev *dev,
+		       struct list_head *head,
+		       struct vhost_msg_node *node);
+struct vhost_msg_node *vhost_dequeue_msg(struct vhost_dev *dev,
+					 struct list_head *head);
+__poll_t vhost_chr_poll(struct file *file, struct vhost_dev *dev,
+			    poll_table *wait);
+ssize_t vhost_chr_read_iter(struct vhost_dev *dev, struct iov_iter *to,
+			    int noblock);
+ssize_t vhost_chr_write_iter(struct vhost_dev *dev,
+			     struct iov_iter *from);
+int vhost_init_device_iotlb(struct vhost_dev *d, bool enabled);
 
 #define vq_err(vq, fmt, ...) do {                                  \
 		pr_debug(pr_fmt(fmt), ##__VA_ARGS__);       \
